@@ -1,0 +1,157 @@
+---
+title: "Exploring removable interactions on mean RT"
+author: "Adriana F. Chávez De la Peña and Joachim Vandekerckhove"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    self_contained: true
+    thumbnails: false
+    lightbox: true
+    gallery: true
+    cards: false
+    highlight: tango
+    fig_width: 12 
+    fig_height: 8 
+---
+
+```{r, echo = FALSE, message = FALSE}
+library(here)
+library(knitr)
+library(kableExtra) 
+library(tidyverse)
+source(here("src", "sample_summary-stats.R"))
+```
+
+
+# Test 1: <br>Single participant tested over multiple days and conditions
+
+```{r}
+K <- 2 # Number of factor levels
+D <- 8 # Number of days (repetitions)
+N <- 120 # Number of trials per condition
+```
+
+We generate data for a single participant in a binary decision task where choice and response time data are recorded. Over the course of $D =$ `r D` days, the participant returns to the lab to complete the task, which consists of four different experimental conditions defined by a `r K`-by-`r K` factorial design:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Create the data frame
+my_data <- data.frame(
+  FactorB = c("FactorB1", "FactorB2"),
+  FactorA1 = c("Cond 1", "Cond 3"),
+  FactorA2 = c("Cond 2", "Cond 4")
+)
+
+# Generate the table using kable
+kable(my_data, 
+      col.names = c("", "FactorA1", "FactorA2"), # Set column names, empty for the first
+      align = 'lcc') %>%                        # Align columns (left, center, center)
+  kable_styling(bootstrap_options = c("striped", "bordered"), # Add styling
+                full_width = FALSE)             # Prevent table from spanning full page width
+```
+
+All conditions include the same number of trials, $N =$ `r N`.
+
+
+First test uses fixed parameter values for the boundary separation and drift rate,
+
+```{r}
+# Only Factor A has a main effect
+bound <- matrix(c(3,   5.5, 
+                  3.05, 5.55), nrow = K, ncol = K, byrow = TRUE)
+# Only Factor B has a main effect
+drift <- matrix(c(0.7, 0.75, 
+                  2.5, 2.45), nrow = K, ncol = K, byrow = TRUE)
+```
+
+```{r, echo = FALSE, fig.height = 4}
+layout(matrix(c(1,2), nrow = 1, ncol = 2))
+par(mai = c(0.5,1,0.5,0.1), oma = c(0,0,0,0))
+plot(c(0.5,1), bound[1,], type = "b", pch = 16, col = "red", ylim = c(0, max(bound)*1.2),
+     ann = FALSE,axes = FALSE, xlim = c(0.4,1.1))
+axis(1, at = c(0.5,1), labels = c("Factor A1", "Factor A2"))
+axis(2, at = seq(0, max(bound)*1.2,length.out = 5), labels = round(seq(0, max(bound)*1.2,length.out = 5),1), las = 2)
+points(c(0.5,1), bound[2,], type = "b", pch = 16, col = "blue")
+legend("bottomright", legend = c("Factor B1", "Factor B2"), col = c("red", "blue"), pch = 16, bty = "n")
+#mtext("Only Factor A has a main effect", side = 3, line = 0, font = 2)
+mtext(expression(bold(paste("Boundary separation ", alpha))), side = 2, line = 2.5, font = 2, cex = 1.2)
+
+plot(c(0.5,1), drift[1,], type = "b", pch = 16, col = "red", ylim = c(0, max(drift)*1.2),
+     ann = FALSE,axes = FALSE, xlim = c(0.4,1.1))
+axis(1, at = c(0.5,1), labels = c("Factor A1", "Factor A2"))
+axis(2, at = seq(0, max(drift)*1.2,length.out = 5), labels = round(seq(0, max(drift)*1.2,length.out = 5),1), las = 2)
+points(c(0.5,1), drift[2,], type = "b", pch = 16, col = "blue")
+#mtext("Only Factor B has a main effect", side = 3, line = 0, font = 2)
+mtext(expression(bold(paste("Drift rate ", nu))), side = 2, line = 2.5, font = 2, cex = 1.2)
+```
+
+```{r}
+ddm_parameters <- list(
+  bound = rep(as.vector(bound), D),
+  drift = rep(as.vector(drift), D),
+  nondt = rep(0.2, D*K*K)  
+)
+```
+
+```{r, echo = FALSE}
+FA <- rep(rep(paste("A",c(1,2), sep=""), each = K), D)
+FB <- rep(paste("B",c(1,2), sep=""), K*D)
+
+design <- data.frame("Drift" = ddm_parameters$drift, 
+                     "Bound" = ddm_parameters$bound, 
+                     "Factor A" = FA, "Factor B" = FB)
+head(design)
+```
+
+```{r}
+sum_stats <- simSumStats(ddm_parameters, N)
+```
+
+```{r}
+full_data <- cbind(design, sum_stats)
+full_data$Condition <- 1
+full_data$Condition[full_data$Factor.B == "B2" & full_data$Factor.A == "A1"] <- 2
+full_data$Condition[full_data$Factor.B == "B1" & full_data$Factor.A == "A2"] <- 3
+full_data$Condition[full_data$Factor.B == "B2" & full_data$Factor.A == "A2"] <- 4
+
+head(full_data)
+```
+
+```{r}
+layout(matrix(c(1), nrow = 1, ncol = 1))
+par(mai = c(1, 1, 0.5, 0.1), oma = c(0, 0, 0, 0)) 
+
+jitter_factor <- 0.1 
+colors_b <- c("red", "blue")
+names(colors_b) <- c("B1", "B2")
+
+means <- matrix(tapply(full_data$Mrt, full_data$Condition, mean), ncol=2)
+
+plot(NULL, xlim = c(0.5, 2.5), ylim = range(full_data$Mrt, na.rm = TRUE) * c(0.95, 1.05), 
+     xlab = "Factor A", ylab = "Mean Reaction Time (Mrt)",
+     main = "Generated Mean RTs by Condition",
+     xaxt = "n", las = 1)     
+axis(1, at = c(1, 2), labels = c("A1", "A2"))
+points(jitter(as.numeric(factor(full_data$Factor.A[full_data$Factor.B == "B1"])), factor = jitter_factor),
+       full_data$Mrt[full_data$Factor.B == "B1"], pch = 16, col = colors_b["B1"])
+points(jitter(as.numeric(factor(full_data$Factor.A[full_data$Factor.B == "B2"])), factor = jitter_factor),
+       full_data$Mrt[full_data$Factor.B == "B2"], pch = 16, col = colors_b["B2"])
+points(c(1,2),means[1,], type="b", pch=16, cex=1.5, lty=2)
+points(c(1,2),means[2,], type="b", pch=16, cex=1.5, lty=2)
+legend("topright", legend = c("Factor B1", "Factor B2"), col = colors_b, pch = 16, bty = "n")
+```
+
+
+# Test 2: Hierarchical model with population parameters
+
+```{r}
+
+```
+
+# Custom functions
+
+## Data generation
+
+```{r, file = here("src", "sample_summary-stats.R")}
+```
+
+
