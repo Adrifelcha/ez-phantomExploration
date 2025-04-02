@@ -1,4 +1,10 @@
-plot_estimates <- function(data){
+plot_estimates <- function(samples, parameter){
+
+if(parameter == "drift"){
+  data <- samples$BUGSoutput$sims.list$drift_pred
+} else if(parameter == "bound"){
+  data <- samples$BUGSoutput$sims.list$bound_pred
+}
 
 axisCol <- "black"
 x_lim <- c(-1.8,1.8)
@@ -36,7 +42,12 @@ axis(2,ylim, c("",""), tck=-0, line=0)
 axis(2,y.seq, rep("", length(y.seq)), tck=-0.04, line=0)
 axis(2,y.seq, y.seq, cex.axis=0.6, lwd=0, line=-0.6, las=2)
 
-mtext(side = 2, outer = F, line = 1.3, expression(paste(nu^pred)), cex = 0.8)
+if(parameter == "drift"){
+  mtext(side = 2, outer = F, line = 1.3, expression(paste(nu^pred)), cex = 2)
+} else if(parameter == "bound"){
+  mtext(side = 2, outer = F, line = 1.3, expression(paste(alpha^pred)), cex = 2)
+}
+
 box(bty = "L", col = axisCol)
 
 biggestDensity <- max(unlist(lapply(histList, function(h){max(h[[4]])})))
@@ -52,8 +63,8 @@ for (i in 1:4) {
   points(X, means[i], pch=18, cex=0.5)
   lines(x=c(X-0.05, X+0.05), y=c(means[i],means[i]), lwd=1)
 }
-#lines(binStarts[c(1,3)], means[c(1,3)], lwd=1, lty=2)
-#lines(binStarts[c(2,4)], means[c(2,4)], lwd=1, lty=2)
+lines(binStarts[c(1,3)], means[c(1,3)], lwd=1, lty=2)
+lines(binStarts[c(2,4)], means[c(2,4)], lwd=1, lty=2)
 #text(1.1,1.85,"Change quality", cex=0.8, f=2)
 #lines(c(0.59,0.64),c(1.55,1.55), lwd=3, col="#42B6EC")
 #text(0.975,1.55,"Qualitative", cex=0.7, f=1)
@@ -61,5 +72,5 @@ for (i in 1:4) {
 #text(1.01,1.25,"Quantitative", cex=0.7, f=1)
 }
 
-plot_estimates(drift_pred)
-plot_estimates(bound_pred)
+#plot_estimates(drift_pred)
+#plot_estimates(bound_pred)
