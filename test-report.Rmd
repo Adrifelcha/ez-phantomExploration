@@ -25,19 +25,30 @@ library(R2jags)
 ```
 
 
+# Introduction
+
+Phantom interactions are scale-dependent statistically significant noncrossover interactions between two or more factors that disappear after appropriate scale transformation.
+
+**Key characteristics:**
+
+- **Scale-Dependent:** The interaction's presence or significance depends heavily on the scale used for the dependent variable.
+- **Visual Cue:** On an interaction plot using the original scale, the lines representing the levels of one factor across the levels of another factor will be non-parallel but typically won't cross within the observed data range (hence "noncrossover"). After transformation, these lines often become (approximately) parallel.
+- **Removable:** The interaction can often be "removed" by changing the scale, potentially simplifying the model interpretation to only main effects on the transformed scale.
+
+Phantom interactions are an artifact of the original dependent variable measurement scale. They can't be used to conclude that the effect of one factor fundamentally changes depending on the level of another. As such, they highlight the importance of considering the appropriate scale for analyzing data, especially when effects might combine multiplicatively rather than purely additively.
+
 # Test 1: <br>Single participant tested over multiple days and conditions
 
-We generate data for a single participant in a binary decision task where choice and response time data are recorded, and modeled using the three parameter drift diffusion model (DDM). 
-
 ```{r}
-# Simulation design:
-J <- 2 # Number of design factors
-K <- 2 # Number of levels per factor
-D <- 8 # Number of repeated observations (experimental sessions)
-N <- 120 # Number of trials per condition
+# Simulation design settings:
+J <- 2    # Design factors
+L <- 2    # Levels per factor
+K <- J*L  # Conditions
+D <- 8    # Repeated observations (experimental sessions)
+N <- 120  # Trials per condition
 ```
 
-We will asume that over the course of $D =$ `r D` days, the participant returns to the lab to complete the task, which consists of four different experimental conditions defined by a `r K`-by-`r K` factorial design:
+We generate data for a single participant in a binary decision task with $K =$ `r K` conditions defined by a simple `r L`-by-`r L` factorial design:
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 # Create the data frame
@@ -55,19 +66,26 @@ kable(my_data,
                 full_width = FALSE)             # Prevent table from spanning full page width
 ```
 
-All conditions include the same number of trials, $N =$ `r N`.
+
+For each condition $k$, we generate summary statistics for the choice and response time data using the EZ drift diffusion model (EZ-DDM). As such, the accuracy rate $\dot{A}_k$, mean response time $\dot{MRT}_k$, and response time variance $\dot{VRT}_k$ are modeled as:
+
+$$\dot{A}_k, \dot{MRT}_k, \dot{VRT}_k \sim \mbox{EZDDM}(\nu_{k}, \alpha_{k}, \tau)$$
+
+where $\nu$, $\alpha$, and $\tau$ are the parameters of the simple drift diffusion model (the drift rate, boundary separation, and non-decision time, respectively).
+
+We generate $D =$ `r D` summary statistics per condition, as if the participant completed the task on $D$ experimental sessions.
 
 ## Set true parameter values
 
-We select arbitrary parameter values for the boundary separation $\alpha$ and drift rate $\nu$ across all experimental conditions in such a way that each parameter is only affected by a given main effect.
+We define arbitrary values for the boundary separation and drift rate parameters in each experimental conditions such that **each parameter is only affected by a different main effect**.
 
 ```{r}
-# Only Factor A has a main effect
+# Only Factor A has a main effect on the boundary separation
 bound <- matrix(c(3,   5.5, 
-                  3.05, 5.55), nrow = K, ncol = K, byrow = TRUE)
-# Only Factor B has a main effect
+                  3.05, 5.55), nrow = L, ncol = L, byrow = TRUE)
+# Only Factor B has a main effect on the drift rate
 drift <- matrix(c(0.7, 0.75, 
-                  2.5, 2.45), nrow = K, ncol = K, byrow = TRUE)
+                  2.5, 2.45), nrow = L, ncol = L, byrow = TRUE)
 ```
 
 ```{r, echo = FALSE, fig.height = 4, fig.align = "center"}
@@ -91,23 +109,29 @@ points(c(0.5,1), drift[2,], type = "b", pch = 16, col = "blue")
 mtext(expression(bold(paste("Drift rate ", nu))), side = 2, line = 2.5, font = 2, cex = 1.2)
 ```
 
-We store these parameter values across conditions, for each day of testing.
+We identify the parameter values used to simulate the summary statistics for each experimental condition per experimental session and store them in a list. 
 
 ```{r}
 ddm_parameters <- list(
-  bound = rep(as.vector(bound), D),
-  drift = rep(as.vector(drift), D),
-  nondt = rep(0.2, D*K*K)  
+  bound = rep(as.vector(bound), D),  # Repeated over experimental sessions
+  drift = rep(as.vector(drift), D),  # Repeated over experimental sessions
+  nondt = rep(0.2, D*L*L)            # Same for all conditions and experimental sessions
 )
 ```
 
+So that the simulation design matrix ends up looking like this:
+
 ```{r, echo = FALSE}
-FA <- rep(rep(paste("A",c(1,2), sep=""), each = K), D)
-FB <- rep(paste("B",c(1,2), sep=""), K*D)
+FA <- rep(rep(paste("A",c(1,2), sep=""), each = L), D)
+FB <- rep(paste("B",c(1,2), sep=""), L*D)
+Session <- rep(1:D, each = K)
 
 design <- data.frame("Drift" = ddm_parameters$drift, 
                      "Bound" = ddm_parameters$bound, 
-                     "Factor A" = FA, "Factor B" = FB)
+                     "Nondt" = ddm_parameters$nondt,
+                     "Factor A" = FA, "Factor B" = FB,
+                     "Condition" = rep(NA, D*K),
+                     "Session" = Session)
 
 design$Condition <- 1
 design$Condition[design$Factor.B == "B2" & design$Factor.A == "A1"] <- 2
@@ -118,16 +142,18 @@ head(design,8)
 
 ## Generate EZ summary statistics
 
-We use our custom function `simSumStats()` to generate the EZ summary statistics for each trial (i.e., accuracy rate `A`, mean RT `Mrt`, and RT variance `Vrt`).
+We use our custom function `simSumStats()` to generate the EZ summary statistics for each experimental session:
 
 ```{r}
 sum_stats <- simSumStats(ddm_parameters, N)
 ```
 
 ```{r, echo=FALSE}
-full_data <- cbind(design, sum_stats)
+full_data <- cbind(design, round(sum_stats, 4))
 head(full_data,8)
 ```
+
+When we plot the mean RTs simulated by condition from the selected true parameter values, we find a noncrossover interaction between Factor A and Factor B. This is an example of a phantom interaction, where the interaction plot shows that the mean RTs across the two levels of any of the two factors are different ($A1 < A2$, and $B1 > B2$), but the magnitude of said difference seems to be modulated by the level of the remaining factor (without being fundamentally or qualitatively affected).
 
 ```{r, echo=FALSE}
 layout(matrix(c(1), nrow = 1, ncol = 1))
@@ -139,21 +165,27 @@ names(colors_b) <- c("B1", "B2")
 
 means <- matrix(tapply(full_data$Mrt, full_data$Condition, mean), ncol=2)
 
-plot(NULL, xlim = c(0.5, 2.5), ylim = range(full_data$Mrt, na.rm = TRUE) * c(0.95, 1.05), 
-     xlab = "Factor A", ylab = "Mean Reaction Time (Mrt)",
-     main = "Generated Mean RTs by Condition",
-     xaxt = "n", las = 1)     
-axis(1, at = c(1, 2), labels = c("A1", "A2"))
+plot(NULL, xlim = c(0.5, 2.5), ylim = range(full_data$Mrt, na.rm = TRUE) * c(0.95, 1.05),      
+     xaxt = "n", las = 1, ann = FALSE)     
+axis(1, at = c(1, 2), labels = c("A1", "A2"), cex.axis = 1.2)
 points(jitter(as.numeric(factor(full_data$Factor.A[full_data$Factor.B == "B1"])), factor = jitter_factor),
        full_data$Mrt[full_data$Factor.B == "B1"], pch = 16, col = colors_b["B1"])
 points(jitter(as.numeric(factor(full_data$Factor.A[full_data$Factor.B == "B2"])), factor = jitter_factor),
        full_data$Mrt[full_data$Factor.B == "B2"], pch = 16, col = colors_b["B2"])
 points(c(1,2),means[1,], type="b", pch=16, cex=1.5, lty=2)
 points(c(1,2),means[2,], type="b", pch=16, cex=1.5, lty=2)
-legend("topright", legend = c("Factor B1", "Factor B2"), col = colors_b, pch = 16, bty = "n")
+#abline(h = 1.5, lty = 2, col = "gray80", lwd = 4)
+mtext("Mean Reaction Time (Mrt)", side = 2, line = 2.7, font = 2, cex = 1.4)
+mtext("Factor A", side = 1, line = 2.5, font = 2, cex = 1.4)
+legend("topright", legend = c("Factor B1", "Factor B2"), col = colors_b, pch = 16, bty = "n", cex = 1.5)
 ```
 
+
+For example, the mean RTs are higher on conditions with factor $A$ set to $A2$ than on conditions with factor $A$ set to $A1$, but this difference seems to be drastically attenuated when factor $B$ is set to $B2$ instead of $B1$.
+
 ## Parameter estimation using our Bayesian EZ DDM
+
+We will now fit a Bayesian EZ DDM to the simulated data to explore the main and interaction effects of Factor A and Factor B on the boundary separation and drift rate parameters. <!--Here, we only show the JAGS model. The full R code can be found on the .Rmd file corresponding to this report. -->
 
 ### JAGS model
 
@@ -161,54 +193,60 @@ legend("topright", legend = c("Factor B1", "Factor B2"), col = colors_b, pch = 1
 modelFile <- here("output", "BUGS", "ezddm_model.bug")
 
 model <- write("
-    model {
-              ####### Priors
-              drift_mu ~ dnorm(0,1)                     # Baseline drift rate
-              drift_lambda ~ dgamma(2,1)
-              drift_sigma = pow(drift_lambda, -0.5)
-              bound_mu ~ dnorm(2,1)T(0,)                     # Baseline boundary separation
-              bound_lambda ~ dgamma(2,1)
-              bound_sigma = pow(bound_lambda, -0.5)
-              nondt ~ dexp(1)
-
-              # Regression coefficients
-              for(i in 1:3){                  
-                  gamma[i] ~ dnorm(0,1)                # Drift rate
-                  lambda[i] ~ dnorm(0,1)               # Boundary separation
-              }      
-              
-              for(j in 1:4){
-                  drift_pred[j] = drift_mu + gamma[1]*A[j]+gamma[2]*B[j]+gamma[3]*A[j]*B[j]
-                  bound_pred[j] = bound_mu + lambda[1]*A[j]+lambda[2]*B[j]+lambda[3]*A[j]*B[j]
-              }
-              
-              ####### Sampling model
-              for (k in 1:length(meanRT)) {
-                  # Person-by-condition parameters for DM parameters                                    
-                  drift[k] ~ dnorm(drift_pred[cond[k]],drift_lambda)
-                  bound[k] ~ dnorm(bound_pred[cond[k]],bound_lambda)                  
+model {
+          ##################
+          ####### Priors
+          ##################                    
+          drift_mu ~ dnorm(0,1)                      # Baseline drift rate
+          drift_lambda ~ dgamma(2,1)
+          drift_sigma = pow(drift_lambda, -0.5)
+          bound_mu ~ dnorm(2,1)T(0,)                 # Baseline boundary separation
+          bound_lambda ~ dgamma(2,1)
+          bound_sigma = pow(bound_lambda, -0.5)
+          nondt ~ dexp(1)                            # Participant-specific non-decision time  
+                                        
+          # Regression coefficients (2 main effects + 1 interaction)
+          for(i in 1:3){                           
+              gamma[i] ~ dnorm(0,1)                # Drift rate regression coefficients
+              lambda[i] ~ dnorm(0,1)               # Boundary separation regression coefficients
+          }      
           
-                  # Forward equations from EZ Diffusion
-                  ey[k]  = exp(-bound[k] * drift[k])
-                  Pc[k]  = 1 / (1 + ey[k])
-                  PRT[k] = 2 * pow(drift[k], 3) / bound[k] * pow(ey[k] + 1, 2) / (2 * -bound[k] * 
-                           drift[k] * ey[k] - ey[k] * ey[k] + 1)
-                  MDT[k] = (bound[k] / (2 * drift[k])) * (1 - ey[k]) / (1 + ey[k])
-                  MRT[k] = MDT[k] + nondt
+          # Condition-specific drift rate and boundary separation
+          for(j in 1:4){
+              drift_pred[j] = drift_mu + gamma[1]*A[j]+gamma[2]*B[j]+gamma[3]*A[j]*B[j]
+              bound_pred[j] = bound_mu + lambda[1]*A[j]+lambda[2]*B[j]+lambda[3]*A[j]*B[j]
+          }
           
-                  # Sampling distributions for summary statistics
-                  correct[k] ~ dbin(Pc[k], nTrials[k])
-                  varRT[k]   ~ dnorm(1/PRT[k], 0.5*(nTrials[k]-1) * PRT[k] * PRT[k])
-                  meanRT[k]  ~ dnorm(MRT[k], PRT[k] * nTrials[k])
-                }
-    }", modelFile)
+          #########################
+          ####### Sampling model 
+          ####### (for each experimental session)
+          #########################          
+          for (k in 1:length(meanRT)) {
+              # Person-by-condition specificDM parameters                                    
+              drift[k] ~ dnorm(drift_pred[cond[k]],drift_lambda)
+              bound[k] ~ dnorm(bound_pred[cond[k]],bound_lambda)                  
+      
+              # Forward equations from EZ Diffusion
+              ey[k]  = exp(-bound[k] * drift[k])
+              Pc[k]  = 1 / (1 + ey[k])
+              PRT[k] = 2 * pow(drift[k], 3) / bound[k] * pow(ey[k] + 1, 2) / (2 * -bound[k] * 
+                      drift[k] * ey[k] - ey[k] * ey[k] + 1)
+              MDT[k] = (bound[k] / (2 * drift[k])) * (1 - ey[k]) / (1 + ey[k])
+              MRT[k] = MDT[k] + nondt
+      
+              # Sampling distributions for summary statistics
+              correct[k] ~ dbin(Pc[k], nTrials[k])
+              varRT[k]   ~ dnorm(1/PRT[k], 0.5*(nTrials[k]-1) * PRT[k] * PRT[k])
+              meanRT[k]  ~ dnorm(MRT[k], PRT[k] * nTrials[k])
+            }
+}", modelFile)
 ```
 
-### JAGS setup
+### Run JAGS
 
-```{r, echo=FALSE}
+```{r}
 # General setup
-n.chains  <- 4;      n.iter    <- 5000
+n.chains  <- 4;      n.iter    <- 3500
 n.burnin  <- 250;    n.thin    <- 1
 
 # Pass data to JAGS
@@ -217,8 +255,8 @@ data_toJAGS <- list("nTrials"  =  rep(N, length(full_data$Mrt)),
                     "varRT"    =  full_data$Vrt,
                     "correct"  =  full_data$A,
                     "cond"     =  full_data$Condition,
-                    "A"   =  as.integer(full_data$Factor.A)-1, 
-                    "B"   =  as.integer(full_data$Factor.B)-1)
+                    "A"   =  ifelse(full_data$Factor.A == "A1", 0, 1), 
+                    "B"   =  ifelse(full_data$Factor.B == "B1", 0, 1))
 
 # Specify parameters to keep track of
 parameters <- c('gamma', 'lambda', 'drift', 'bound', 'drift_pred', 'bound_pred',
@@ -229,11 +267,7 @@ myinits <- rep(list(list()), n.chains)
 for(i in 1:n.chains){
     myinits[[i]] <- list(drift = rnorm(length(data_toJAGS$nTrials),1,0.1))
 }
-```
 
-### JAGS run
-
-```{r}
 start <- Sys.time()
 samples <- jags(data=data_toJAGS,
                 parameters.to.save=parameters,
