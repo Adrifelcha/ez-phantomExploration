@@ -20,8 +20,12 @@ library(here)
 library(knitr)
 library(kableExtra) 
 library(tidyverse)
-source(here("src", "sample_summary-stats.R"))
 library(R2jags)
+
+# Load custom plotting functions
+source(here("src", "sample_summary-stats.R"))
+source(here("src", "plot_verticalHist.R"))
+source(here("src", "plot_posteriors.R"))
 ```
 
 
@@ -69,7 +73,7 @@ kable(my_data,
 
 For each condition $k$, we generate summary statistics for the choice and response time data using the EZ drift diffusion model (EZ-DDM). As such, the accuracy rate $\dot{A}_k$, mean response time $\dot{MRT}_k$, and response time variance $\dot{VRT}_k$ are modeled as:
 
-$$\dot{A}_k, \dot{MRT}_k, \dot{VRT}_k \sim \mbox{EZDDM}(\nu_{k}, \alpha_{k}, \tau)$$
+$$\left\{\dot{A}_k, \dot{MRT}_k, \dot{VRT}_k\right\} \sim \mbox{EZDDM}\left(\nu_{k}, \alpha_{k}, \tau\right )$$
 
 where $\nu$, $\alpha$, and $\tau$ are the parameters of the simple drift diffusion model (the drift rate, boundary separation, and non-decision time, respectively).
 
@@ -77,7 +81,7 @@ We generate $D =$ `r D` summary statistics per condition, as if the participant 
 
 ## Set true parameter values
 
-We define arbitrary values for the boundary separation and drift rate parameters in each experimental conditions such that **each parameter is only affected by a different main effect**.
+We define arbitrary values for the boundary separation and drift rate parameters in each experimental condition such that **each parameter is only affected by a given main effect**.
 
 ```{r}
 # Only Factor A has a main effect on the boundary separation
@@ -88,28 +92,35 @@ drift <- matrix(c(0.7, 0.75,
                   2.5, 2.45), nrow = L, ncol = L, byrow = TRUE)
 ```
 
+As shown in the interaction plots below, the boundary separation parameter is only affected by Factor A, while the drift rate parameter is only affected by Factor B.
+
 ```{r, echo = FALSE, fig.height = 4, fig.align = "center"}
+bound_b1.color <- rgb(0.1, 0.3, 0.8, 1)  # Dark blue with transparency
+bound_b2.color <- rgb(0.4, 0.8, 1.0, 1)  # Light blue with transparency
+drift_b1.color <- rgb(0.5, 0.0, 0.8, 1)  # Dark purple
+drift_b2.color <- rgb(0.8, 0.6, 1.0, 1)  # Light purple
+
+
 layout(matrix(c(1,2), nrow = 1, ncol = 2))
 par(mai = c(0.5,1,0.5,0.1), oma = c(0,0,0,0))
-plot(c(0.5,1), bound[1,], type = "b", pch = 16, col = "red", ylim = c(0, max(bound)*1.2),
+plot(c(0.5,1), bound[1,], type = "b", pch = 16, col = bound_b1.color, ylim = c(0, max(bound)*1.2),
      ann = FALSE,axes = FALSE, xlim = c(0.4,1.1))
 axis(1, at = c(0.5,1), labels = c("Factor A1", "Factor A2"))
 axis(2, at = seq(0, max(bound)*1.2,length.out = 5), labels = round(seq(0, max(bound)*1.2,length.out = 5),1), las = 2)
-points(c(0.5,1), bound[2,], type = "b", pch = 16, col = "blue")
-legend("bottomright", legend = c("Factor B1", "Factor B2"), col = c("red", "blue"), pch = 16, bty = "n")
-#mtext("Only Factor A has a main effect", side = 3, line = 0, font = 2)
+points(c(0.5,1), bound[2,], type = "b", pch = 16, col = bound_b2.color)
+legend("bottomright", legend = c("Factor B1", "Factor B2"), col = c(bound_b1.color, bound_b2.color), pch = 16, bty = "n", cex = 1.2)
 mtext(expression(bold(paste("Boundary separation ", alpha))), side = 2, line = 2.5, font = 2, cex = 1.2)
 
-plot(c(0.5,1), drift[1,], type = "b", pch = 16, col = "red", ylim = c(0, max(drift)*1.2),
+plot(c(0.5,1), drift[1,], type = "b", pch = 16, col = drift_b1.color, ylim = c(0, max(drift)*1.2),
      ann = FALSE,axes = FALSE, xlim = c(0.4,1.1))
 axis(1, at = c(0.5,1), labels = c("Factor A1", "Factor A2"))
 axis(2, at = seq(0, max(drift)*1.2,length.out = 5), labels = round(seq(0, max(drift)*1.2,length.out = 5),1), las = 2)
-points(c(0.5,1), drift[2,], type = "b", pch = 16, col = "blue")
-#mtext("Only Factor B has a main effect", side = 3, line = 0, font = 2)
+points(c(0.5,1), drift[2,], type = "b", pch = 16, col = drift_b2.color)
+legend("bottomright", legend = c("Factor B1", "Factor B2"), col = c(drift_b1.color, drift_b2.color), pch = 16, bty = "n", cex = 1.2)
 mtext(expression(bold(paste("Drift rate ", nu))), side = 2, line = 2.5, font = 2, cex = 1.2)
 ```
 
-We identify the parameter values used to simulate the summary statistics for each experimental condition per experimental session and store them in a list. 
+We prepare a list with the parameter values used to sample summary statistics for each experimental condition across experimental sessions. 
 
 ```{r}
 ddm_parameters <- list(
@@ -153,14 +164,14 @@ full_data <- cbind(design, round(sum_stats, 4))
 head(full_data,8)
 ```
 
-When we plot the mean RTs simulated by condition from the selected true parameter values, we find a noncrossover interaction between Factor A and Factor B. This is an example of a phantom interaction, where the interaction plot shows that the mean RTs across the two levels of any of the two factors are different ($A1 < A2$, and $B1 > B2$), but the magnitude of said difference seems to be modulated by the level of the remaining factor (without being fundamentally or qualitatively affected).
+When we plot the mean RTs simulated by condition from the selected true parameter values, we find a noncrossover interaction between Factor A and Factor B. This is an example of a phantom interaction, where the interaction plot shows differences in the mean RT across the two levels of both factors, but the difference seems to be modulated (i.e., attenuated or increased) by the remaining factor. 
 
 ```{r, echo=FALSE}
 layout(matrix(c(1), nrow = 1, ncol = 1))
 par(mai = c(1, 1, 0.5, 0.1), oma = c(0, 0, 0, 0)) 
 
 jitter_factor <- 0.1 
-colors_b <- c("red", "blue")
+colors_b <- c("darkgreen", "chartreuse3")
 names(colors_b) <- c("B1", "B2")
 
 means <- matrix(tapply(full_data$Mrt, full_data$Condition, mean), ncol=2)
@@ -172,22 +183,35 @@ points(jitter(as.numeric(factor(full_data$Factor.A[full_data$Factor.B == "B1"]))
        full_data$Mrt[full_data$Factor.B == "B1"], pch = 16, col = colors_b["B1"])
 points(jitter(as.numeric(factor(full_data$Factor.A[full_data$Factor.B == "B2"])), factor = jitter_factor),
        full_data$Mrt[full_data$Factor.B == "B2"], pch = 16, col = colors_b["B2"])
-points(c(1,2),means[1,], type="b", pch=16, cex=1.5, lty=2)
-points(c(1,2),means[2,], type="b", pch=16, cex=1.5, lty=2)
-#abline(h = 1.5, lty = 2, col = "gray80", lwd = 4)
+for(i in 1:2){
+    points(c(i,i),means[,i], type="l", pch=16, cex=1.5, lty=3, lwd=4, col="darkorange")
+}
+for(i in 1:2){    
+    points(c(1,2),means[i,], type="b", pch=16, cex=1.5, lty=2)        
+}
 mtext("Mean Reaction Time (Mrt)", side = 2, line = 2.7, font = 2, cex = 1.4)
 mtext("Factor A", side = 1, line = 2.5, font = 2, cex = 1.4)
 legend("topright", legend = c("Factor B1", "Factor B2"), col = colors_b, pch = 16, bty = "n", cex = 1.5)
 ```
 
+For example, the orange vertical lines in the plot above suggest that the effect of Factor B on the mean RT is different depending on the level of Factor A, even though both pairs of mean RTs preserve the same order across levels of Factor B.
 
-For example, the mean RTs are higher on conditions with factor $A$ set to $A2$ than on conditions with factor $A$ set to $A1$, but this difference seems to be drastically attenuated when factor $B$ is set to $B2$ instead of $B1$.
+## Evaluate the noncrossover interaction in JAGS
 
-## Parameter estimation using our Bayesian EZ DDM
-
-We will now fit a Bayesian EZ DDM to the simulated data to explore the main and interaction effects of Factor A and Factor B on the boundary separation and drift rate parameters. <!--Here, we only show the JAGS model. The full R code can be found on the .Rmd file corresponding to this report. -->
+We now fit a Bayesian EZ-DDM model to the simulated data to properly quantify and evaluate the main and interaction effects of Factor A and Factor B on the boundary separation and drift rate parameters. <!--Here, we only show the JAGS model. The full R code can be found on the .Rmd file corresponding to this report. -->
 
 ### JAGS model
+
+We write a JAGS model that describes the drift rate and boundary separation parameters as a function of the levels of Factor A and Factor B, incorporating main effects and the interaction between them.
+
+\begin{equation}
+\nu_{k} = \mu_{\nu} + \gamma_{1}A_{k} + \gamma_{2}B_{k} + \gamma_{3}A_{k}B_{k}\\
+\end{equation}
+
+\begin{equation}
+\alpha_{k} = \mu_{\alpha} + \lambda_{1}A_{k} + \lambda_{2}B_{k} + \lambda_{3}A_{k}B_{k}
+\end{equation}
+
 
 ```{r}
 modelFile <- here("output", "BUGS", "ezddm_model.bug")
@@ -207,8 +231,8 @@ model {
                                         
           # Regression coefficients (2 main effects + 1 interaction)
           for(i in 1:3){                           
-              gamma[i] ~ dnorm(0,1)                # Drift rate regression coefficients
-              lambda[i] ~ dnorm(0,1)               # Boundary separation regression coefficients
+              gamma[i] ~ dnorm(0,1)       # Drift rate regression coefficients
+              lambda[i] ~ dnorm(0,1)      # Boundary separation regression coefficients
           }      
           
           # Condition-specific drift rate and boundary separation
@@ -244,7 +268,7 @@ model {
 
 ### Run JAGS
 
-```{r}
+```{r, warning = FALSE, results = "hide"}
 # General setup
 n.chains  <- 4;      n.iter    <- 3500
 n.burnin  <- 250;    n.thin    <- 1
@@ -259,14 +283,13 @@ data_toJAGS <- list("nTrials"  =  rep(N, length(full_data$Mrt)),
                     "B"   =  ifelse(full_data$Factor.B == "B1", 0, 1))
 
 # Specify parameters to keep track of
-parameters <- c('gamma', 'lambda', 'drift', 'bound', 'drift_pred', 'bound_pred',
-                "Pc", "PRT", "MRT")
+parameters <- c('gamma', 'lambda', 'drift', 'bound', 'drift_pred', 'bound_pred')
 
 # Prepare initial values
 myinits <- rep(list(list()), n.chains)
-for(i in 1:n.chains){
-    myinits[[i]] <- list(drift = rnorm(length(data_toJAGS$nTrials),1,0.1))
-}
+          for(i in 1:n.chains){
+              myinits[[i]] <- list(drift = rnorm(length(data_toJAGS$nTrials),1,0.1))
+          }
 
 start <- Sys.time()
 samples <- jags(data=data_toJAGS,
@@ -280,59 +303,159 @@ end <- Sys.time()
 cat("Time taken:", round(difftime(end, start, units = "secs"), 2), "seconds")
 ```
 
+### Convergence diagnostics
 
-```{r, echo=FALSE}
+```{r}
 source(here("src", "get_Rhat.R"))
 
 rhats <- apply(samples$BUGSoutput$sims.array,3,getRhat)
 rule <- 1.05
 bad.Rhat <- which(rhats>rule)
-test.rhat <- length(bad.Rhat) > 0
-  if(test.rhat){
-          par(mfrow=c(1,1))
-          which.are.bad.Rhats <- names(bad.Rhat)
-          hist(rhats, breaks = 50)
-          abline(v=rule, col="red", lty=2)
-          legend("top",paste("Rhat > ",rule," | ",
-                             (round(nrow(bad.Rhat)/(length(as.vector(rhats))),5))*100,
-                             "% of chains | ", length(which.are.bad.Rhats), " chains", sep=""), lty=2, col="red", cex=0.4)
-          table(which.are.bad.Rhats)
-  }else{      paste("No Rhat greater than ", rule, sep="")       }
+if(length(bad.Rhat) > 0){        
+        which.are.bad.Rhats <- names(bad.Rhat)
+        hist(rhats, breaks = 50)
+        abline(v=rule, col="red", lty=2)
+        legend("top",paste("Rhat > ",rule," | ",
+                          (round(nrow(bad.Rhat)/(length(as.vector(rhats))),5))*100,
+                          "% of chains | ", length(which.are.bad.Rhats), " chains", sep=""), lty=2, col="red", cex=0.4)
+        table(which.are.bad.Rhats)
+}else{      paste("No Rhat greater than ", rule, sep="")       }
 ```
+
+### Extract posterior samples
 
 ```{r}
 # Effects of instruction
-gamma <- as.vector(samples$BUGSoutput$sims.list$gamma) # Main
-lambda <- samples$BUGSoutput$sims.list$lambda # Interaction
-# Fitted values / Predicted drift rates
+gamma <- samples$BUGSoutput$sims.list$gamma   # Effects on the drift rate
+lambda <- samples$BUGSoutput$sims.list$lambda # Effects on the boundary separation
+# Predicted drift rates and boundary separations
 drift_pred <- samples$BUGSoutput$sims.list$drift_pred
 bound_pred <- samples$BUGSoutput$sims.list$bound_pred
-
-# Load custom plotting functions
-source(here("src", "plot_verticalHist.R"))
-source(here("src", "plot_posteriors.R"))
 ```
 
-```{r}
+
+## Results
+
+### Interaction plots
+
+We plot the posterior distributions of the drift rate and boundary separation parameters for each experimental condition in the following interaction plots. We confirm that our model is able to recover the single-main effect structure of the true parameter values used to simulate the data.
+
+```{r, echo=FALSE}
+par(mfrow = c(1,2), mar = c(5, 4, 4, 2) + 0.1)
 plot_estimates(samples, "drift")
-```
+points(c(1.05,1.95), drift[1,], type = "b", pch = 16, col = "blue")
+points(c(0.95,2.05), drift[2,], type = "b", pch = 16, col = "blue")
 
-```{r}
 plot_estimates(samples, "bound")
+points(c(0.5,1), bound[1,], type = "b", pch = 16, col = "blue")
+points(c(0.5,1), bound[2,], type = "b", pch = 16, col = "blue")
 ```
 
 
-# Test 2: Hierarchical model with population parameters
+### Effect sizes
 
-```{r}
+Next, we look at the posterior distributions for the regression coefficients describing the main and interaction effects of Factor A and Factor B on the drift rate and boundary separation parameters. As expected, we find that Factor A only has a main effect on the boundary separation parameter, while Factor B only has a main effect on the drift rate parameter.
 
+```{r, echo=FALSE}
+# Clear any previous plot settings
+par(mfrow = c(1,2), mar = c(5, 4, 4, 2) + 0.1)
+
+# Color palette for gamma (pink family) - drift rate effects
+gamma.c <- c(rgb(0.95, 0.1, 0.5, 0.4),   # Parameter 1: semi-transparent magenta pink
+             rgb(0.95, 0.5, 0.7, 0.4),   # Parameter 2: semi-transparent medium pink
+             rgb(1.0, 0.7, 0.9, 0.4))    # Parameter 3: semi-transparent light pink
+
+gamma.l <- c(rgb(0.95, 0.1, 0.5, 1),     # Parameter 1: solid magenta pink
+             rgb(0.95, 0.5, 0.7, 1),     # Parameter 2: solid medium pink
+             rgb(1.0, 0.7, 0.9, 1))      # Parameter 3: solid light pink
+
+# Color palette for lambda (blue family) - boundary separation effects
+lambda.c <- c(rgb(0.1, 0.3, 0.8, 0.4),   # Parameter 1: semi-transparent deep blue
+              rgb(0.3, 0.6, 0.9, 0.4),   # Parameter 2: semi-transparent medium blue
+              rgb(0.5, 0.8, 1.0, 0.4))   # Parameter 3: semi-transparent light blue
+
+lambda.l <- c(rgb(0.1, 0.3, 0.8, 1),     # Parameter 1: solid deep blue
+              rgb(0.3, 0.6, 0.9, 1),     # Parameter 2: solid medium blue
+              rgb(0.5, 0.8, 1.0, 1))     # Parameter 3: solid light blue
+
+# Parameter names for plot titles
+param_names <- c("Factor A", "Factor B", "Interaction")
+
+# Create two side-by-side plots
+for(i in 1:2) {
+  # Calculate xlim for each plot based on the specific gamma and lambda pair
+  xlim <- range(c(gamma[,i], lambda[,i]))
+  ylim <- c(0, max(c(density(gamma[,i])$y, density(lambda[,i])$y)) * 1.1)
+  
+  plot(c(0,0), main = paste("Main Effect of ", param_names[i]), 
+       xlab = "Effect size", ylab = "Density", 
+       col = "gray", lty = 2, lwd = 1, xlim = xlim, ylim = ylim, type = "n")
+  
+  # Add vertical line at zero
+  abline(v = 0, col = "gray", lty = 2)
+  
+  # Add histograms and density lines
+  hist(gamma[,i], add = TRUE, freq = FALSE, breaks = 30, col = gamma.c[i])
+  lines(density(gamma[,i]), lwd = 3, col = gamma.l[i])
+  
+  hist(lambda[,i], add = TRUE, freq = FALSE, breaks = 30, col = lambda.c[i])
+  lines(density(lambda[,i]), lwd = 3, col = lambda.l[i])
+  
+  # Add legend to each plot
+  legend("topright", 
+         legend = c("Effect on drift rate", "Effect on boundary separation"), 
+         col = c(gamma.l[i], lambda.l[i]), 
+         lwd = 3, 
+         bty = "n")
+}
 ```
 
-# Custom functions
 
-## Data generation
 
-```{r, file = here("src", "sample_summary-stats.R")}
+
+```{r, echo=FALSE}
+epsilon <- 0.1
+prior_constant <- pnorm(epsilon) - pnorm(-epsilon)
+for(i in 1:2){
+    this.gamma <- gamma[,i]
+    post_mass <- mean(this.gamma > -epsilon & this.gamma < epsilon)
+    this.BF <- prior_constant/post_mass
+    this.BF[post_mass==0] <- Inf
+    cat("The B.F. for gamma", i, " in favor of an effect is", this.BF, ".", sep="")
+    if(this.BF < 1){
+      cat(" Evidence in favor of the null effect!\n")
+    } else if (this.BF < 1.2){
+      cat(" Weak evidence in favor of the effect!\n")
+    } else if (this.BF < 5){
+      cat(" Moderate evidence in favor of the effect!\n")
+    } else {
+      cat(" Strong evidence in favor of the effect!\n")
+    }
+}
 ```
 
 
+```{r, echo=FALSE}
+  # Calculate xlim for each plot based on the specific gamma and lambda pair
+  xlim <- range(c(gamma[,3], lambda[,3]))
+  ylim <- c(0, max(c(density(gamma[,3])$y, density(lambda[,3])$y)) * 1.1)
+  
+  plot(c(0,0), main = paste("Effects of", param_names[i]), 
+       xlab = "Effect size", ylab = "Density", 
+       col = "gray", lty = 2, lwd = 1, xlim = xlim, ylim = ylim, type = "n")
+  
+  # Add vertical line at zero
+  abline(v = 0, col = "gray", lty = 2)
+  
+  # Add histograms and density lines
+  hist(gamma[,3], add = TRUE, freq = FALSE, breaks = 30, col = gamma.c[3])
+  lines(density(gamma[,3]), lwd = 3, col = gamma.l[3])
+  
+  hist(lambda[,3], add = TRUE, freq = FALSE, breaks = 30, col = lambda.c[i])
+  lines(density(lambda[,3]), lwd = 3, col = lambda.l[3])
+  
+  # Add legend to each plot
+  legend("topright", 
+         legend = c("Effect on drift rate", "Effect on boundary separation"), 
+         col = c(gamma.l[i], lambda.l[i]), lwd = 3, bty = "n")
+```
