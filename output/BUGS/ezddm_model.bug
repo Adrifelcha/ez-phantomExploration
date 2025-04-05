@@ -13,8 +13,8 @@ model {
                                         
           # Regression coefficients (2 main effects + 1 interaction)
           for(i in 1:3){                           
-              gamma[i] ~ dnorm(0,1)                # Drift rate regression coefficients
-              lambda[i] ~ dnorm(0,1)               # Boundary separation regression coefficients
+              gamma[i] ~ dnorm(0,1)       # Drift rate regression coefficients
+              lambda[i] ~ dnorm(0,1)      # Boundary separation regression coefficients
           }      
           
           # Condition-specific drift rate and boundary separation
