@@ -79,7 +79,9 @@ where $\nu$, $\alpha$, and $\tau$ are the parameters of the simple drift diffusi
 
 We generate $D =$ `r D` summary statistics per condition, as if the participant completed the task on $D$ experimental sessions.
 
-## Set true parameter values
+## Simulate data
+
+### Set true parameter values
 
 We define arbitrary values for the boundary separation and drift rate parameters in each experimental condition such that **each parameter is only affected by a given main effect**.
 
@@ -151,7 +153,7 @@ design$Condition[design$Factor.B == "B2" & design$Factor.A == "A2"] <- 4
 head(design,8)
 ```
 
-## Generate EZ summary statistics
+### Generate EZ summary statistics
 
 We use our custom function `simSumStats()` to generate the EZ summary statistics for each experimental session:
 
@@ -161,10 +163,14 @@ sum_stats <- simSumStats(ddm_parameters, N)
 
 ```{r, echo=FALSE}
 full_data <- cbind(design, round(sum_stats, 4))
+full_data$Factor.A <- as.factor(full_data$Factor.A)
+full_data$Factor.B <- as.factor(full_data$Factor.B)
 head(full_data,8)
 ```
 
-When we plot the mean RTs simulated by condition from the selected true parameter values, we find a noncrossover interaction between Factor A and Factor B. This is an example of a phantom interaction, where the interaction plot shows differences in the mean RT across the two levels of both factors, but the difference seems to be modulated (i.e., attenuated or increased) by the remaining factor. 
+## Noncrossover interaction in Mean RTs
+
+When we plot the mean RTs simulated by condition from the selected true parameter values, we find a noncrossover interaction between Factor A and Factor B. The interaction plot shows differences in the mean RT across the two levels of both factors, with the magnitude of said difference being modulated by the second factor (e.g., the vertical lines indicating the difference between the two levels of Factor A are different for the two levels of Factor B). This is an example of a phantom interaction that can be removed by a simple scale transformation.
 
 ```{r, echo=FALSE}
 layout(matrix(c(1), nrow = 1, ncol = 1))
@@ -172,6 +178,7 @@ par(mai = c(1, 1, 0.5, 0.1), oma = c(0, 0, 0, 0))
 
 jitter_factor <- 0.1 
 colors_b <- c("darkgreen", "chartreuse3")
+diff_color <- "darkorange"
 names(colors_b) <- c("B1", "B2")
 
 means <- matrix(tapply(full_data$Mrt, full_data$Condition, mean), ncol=2)
@@ -184,19 +191,92 @@ points(jitter(as.numeric(factor(full_data$Factor.A[full_data$Factor.B == "B1"]))
 points(jitter(as.numeric(factor(full_data$Factor.A[full_data$Factor.B == "B2"])), factor = jitter_factor),
        full_data$Mrt[full_data$Factor.B == "B2"], pch = 16, col = colors_b["B2"])
 for(i in 1:2){
-    points(c(i,i),means[,i], type="l", pch=16, cex=1.5, lty=3, lwd=4, col="darkorange")
+    points(c(i,i),means[,i], type="l", pch=16, cex=1.5, lty=3, lwd=4, col=diff_color)
+    text(i-c(0.075,-0.075)[i], mean(means[,i]), parse(text=paste0("\"Diff\"[", i, "]")), cex = 1.2, col=diff_color)
 }
 for(i in 1:2){    
     points(c(1,2),means[i,], type="b", pch=16, cex=1.5, lty=2)        
 }
+text(0.75, max(full_data$Mrt, na.rm = TRUE)*.9, 
+     expression("Diff"[1] * " " * "\u2260" * " " * "Diff"[2]), cex = 1.5, col=diff_color)
 mtext("Mean Reaction Time (Mrt)", side = 2, line = 2.7, font = 2, cex = 1.4)
 mtext("Factor A", side = 1, line = 2.5, font = 2, cex = 1.4)
 legend("topright", legend = c("Factor B1", "Factor B2"), col = colors_b, pch = 16, bty = "n", cex = 1.5)
 ```
 
-For example, the orange vertical lines in the plot above suggest that the effect of Factor B on the mean RT is different depending on the level of Factor A, even though both pairs of mean RTs preserve the same order across levels of Factor B.
 
-## Evaluate the noncrossover interaction in JAGS
+By running a frequentist ANOVA on the mean RTs generated and plotted above, we find that both Factor A and Factor B have significant main effect on the mean RTs, but more importantly, the interaction between the two factors is also statistically significant.
+
+```{r}
+# Run ANOVA test
+anova_result <- aov(Mrt ~ Factor.A * Factor.B, data = full_data)
+summary(anova_result)
+```
+
+These results 
+
+```{r}
+modelFile <- here("output", "BUGS", "linear_model.bug")
+
+model <- write("
+model {
+          # Priors
+          beta0 ~ dnorm(0,1)        # Mean RT - Intercept/Baseline          
+          beta1 ~ dnorm(0,1)        # Factor A - Main effect
+          beta2 ~ dnorm(0,1)        # Factor B - Main effect
+          beta3 ~ dnorm(0,1)        # Factor A * Factor B - Interaction
+          rt_lambda ~ dunif(0,3)    # Mean RT - Precision
+          
+          # Condition-specific Mean RT predictions
+          for(j in 1:4){
+              rt_pred[j] = beta0 + beta1*A[j]+beta2*B[j]+beta3*A[j]*B[j]              
+          }
+          
+          # Sampling model           
+          for (k in 1:length(meanRT)) {
+              # Person-by-condition specificDM parameters                                                  
+              meanRT[k]  ~ dnorm(rt_pred[cond[k]],rt_lambda)
+            }
+}", modelFile)
+```
+
+```{r, warning = FALSE, results = "hide", echo=FALSE}
+# General setup
+n.chains  <- 4;      n.iter    <- 3500
+n.burnin  <- 250;    n.thin    <- 1
+
+# Pass data to JAGS
+data_toJAGS <- list("nTrials"  =  rep(N, length(full_data$Mrt)),
+                    "meanRT"   =  full_data$Mrt,
+                    "varRT"    =  full_data$Vrt,
+                    "correct"  =  full_data$A,
+                    "cond"     =  full_data$Condition,
+                    "A"   =  ifelse(full_data$Factor.A == "A1", 0, 1), 
+                    "B"   =  ifelse(full_data$Factor.B == "B1", 0, 1))
+
+# Specify parameters to keep track of
+parameters <- c('gamma', 'lambda', 'drift', 'bound', 'drift_pred', 'bound_pred')
+
+# Prepare initial values
+myinits <- rep(list(list()), n.chains)
+          for(i in 1:n.chains){
+              myinits[[i]] <- list(drift = rnorm(length(data_toJAGS$nTrials),1,0.1))
+          }
+
+start <- Sys.time()
+samples <- jags(data=data_toJAGS,
+                parameters.to.save=parameters,
+                model=modelFile,
+                n.chains=n.chains,  n.iter=n.iter,
+                n.burnin=n.burnin,  n.thin=n.thin,
+                DIC=T, inits=myinits)
+end <- Sys.time()
+
+cat("Time taken:", round(difftime(end, start, units = "secs"), 2), "seconds")
+```
+
+
+## Fit a Bayesian EZ-DDM model
 
 We now fit a Bayesian EZ-DDM model to the simulated data to properly quantify and evaluate the main and interaction effects of Factor A and Factor B on the boundary separation and drift rate parameters. <!--Here, we only show the JAGS model. The full R code can be found on the .Rmd file corresponding to this report. -->
 
@@ -459,3 +539,8 @@ for(i in 1:2){
          legend = c("Effect on drift rate", "Effect on boundary separation"), 
          col = c(gamma.l[i], lambda.l[i]), lwd = 3, bty = "n")
 ```
+
+
+
+
+
