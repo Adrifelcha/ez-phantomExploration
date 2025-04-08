@@ -26,6 +26,9 @@ library(R2jags)
 source(here("src", "sample_summary-stats.R"))
 source(here("src", "plot_verticalHist.R"))
 source(here("src", "plot_posteriors.R"))
+source(here("src", "get_Rhat.R"))
+
+seed <- 123
 ```
 
 
@@ -158,6 +161,7 @@ head(design,8)
 We use our custom function `simSumStats()` to generate the EZ summary statistics for each experimental session:
 
 ```{r}
+set.seed(seed)
 sum_stats <- simSumStats(ddm_parameters, N)
 ```
 
@@ -178,7 +182,7 @@ par(mai = c(1, 1, 0.5, 0.1), oma = c(0, 0, 0, 0))
 
 jitter_factor <- 0.1 
 colors_b <- c("darkgreen", "chartreuse3")
-diff_color <- "darkorange"
+diff_color <- "gray40"
 names(colors_b) <- c("B1", "B2")
 
 means <- matrix(tapply(full_data$Mrt, full_data$Condition, mean), ncol=2)
@@ -213,7 +217,7 @@ anova_result <- aov(Mrt ~ Factor.A * Factor.B, data = full_data)
 summary(anova_result)
 ```
 
-These results 
+These results are consistent with the Bayesian multiple regression model fit to the data below.
 
 ```{r}
 modelFile <- here("output", "BUGS", "linear_model.bug")
@@ -241,26 +245,25 @@ model {
 ```
 
 ```{r, warning = FALSE, results = "hide", echo=FALSE}
+set.seed(seed)
 # General setup
 n.chains  <- 4;      n.iter    <- 3500
 n.burnin  <- 250;    n.thin    <- 1
 
 # Pass data to JAGS
 data_toJAGS <- list("nTrials"  =  rep(N, length(full_data$Mrt)),
-                    "meanRT"   =  full_data$Mrt,
-                    "varRT"    =  full_data$Vrt,
-                    "correct"  =  full_data$A,
+                    "meanRT"   =  full_data$Mrt,                    
                     "cond"     =  full_data$Condition,
                     "A"   =  ifelse(full_data$Factor.A == "A1", 0, 1), 
                     "B"   =  ifelse(full_data$Factor.B == "B1", 0, 1))
 
 # Specify parameters to keep track of
-parameters <- c('gamma', 'lambda', 'drift', 'bound', 'drift_pred', 'bound_pred')
+parameters <- c('beta0', 'beta1', 'beta2', 'beta3')
 
 # Prepare initial values
 myinits <- rep(list(list()), n.chains)
           for(i in 1:n.chains){
-              myinits[[i]] <- list(drift = rnorm(length(data_toJAGS$nTrials),1,0.1))
+              myinits[[i]] <- list(beta1 = rnorm(1,0,0.1))
           }
 
 start <- Sys.time()
@@ -275,6 +278,48 @@ end <- Sys.time()
 cat("Time taken:", round(difftime(end, start, units = "secs"), 2), "seconds")
 ```
 
+```{r, echo=FALSE}
+rhats <- apply(samples$BUGSoutput$sims.array,3,getRhat)
+rule <- 1.05
+bad.Rhat <- which(rhats>rule)
+if(length(bad.Rhat) > 0){        
+        which.are.bad.Rhats <- names(bad.Rhat)
+        hist(rhats, breaks = 50)
+        abline(v=rule, col="red", lty=2)
+        legend("top",paste("Rhat > ",rule," | ",
+                          (round(nrow(bad.Rhat)/(length(as.vector(rhats))),5))*100,
+                          "% of chains | ", length(which.are.bad.Rhats), " chains", sep=""), lty=2, col="red", cex=0.4)
+        table(which.are.bad.Rhats)
+}else{      paste("No Rhat greater than ", rule, sep="")       }
+
+# Load posterior chains
+beta0 <- samples$BUGSoutput$sims.list$beta0   # Intercept
+beta1 <- samples$BUGSoutput$sims.list$beta1   # Main effect of Factor A
+beta2 <- samples$BUGSoutput$sims.list$beta2   # Main effect of Factor B
+beta3 <- samples$BUGSoutput$sims.list$beta3   # Interaction effect
+```
+
+```{r, echo=FALSE}
+layout(matrix(c(1,3,2,4), nrow = 2, ncol = 2))
+par(mai = c(1, 1, 0.5, 0.1), oma = c(0, 0, 0, 0)) 
+
+curve.col <- c("#D9FFBB", "#D9FFBB", "#CFE0C0")
+breaks.col <- c("#BAF989", "#BAF989", "#AEC995")
+line.col <- c("#7CC642", "#7CC642", "#7BAE4C")
+
+xlim <- c(-3,3)
+hist(beta1, main = "Factor A - Main effect", xlab = expression(beta[1]), ylab = "Frequency", col = curve.col[1], xlim = xlim, freq = FALSE, breaks = 30, border = breaks.col[1], cex.main = 1.5)
+lines(density(beta1), lwd = 3, col = line.col[1])
+abline(v = 0, lty = 2, col = "red")
+hist(beta2, main = "Factor B - Main effect", xlab = expression(beta[2]), ylab = "Frequency", col = curve.col[2], xlim = xlim, freq = FALSE, breaks = 30, border = breaks.col[2], cex.main = 1.5)
+lines(density(beta2), lwd = 3, col = line.col[2])
+abline(v = 0, lty = 2, col = "red")
+hist(beta3, main = "Interaction", xlab = expression(beta[3]), ylab = "Frequency", col = curve.col[3], xlim = xlim, freq = FALSE, breaks = 30, border = breaks.col[3], cex.main = 1.5)
+lines(density(beta3), lwd = 3, col = line.col[3])
+abline(v = 0, lty = 2, col = "red")
+```
+
+As shown in the plots above, all three posterior distributions for the regression coefficients have almost no posterior density at zero, indicating that the main and interaction effects of Factor A and Factor B on the mean RTs are supported by evidence.
 
 ## Fit a Bayesian EZ-DDM model
 
@@ -349,6 +394,8 @@ model {
 ### Run JAGS
 
 ```{r, warning = FALSE, results = "hide"}
+set.seed(seed)
+
 # General setup
 n.chains  <- 4;      n.iter    <- 3500
 n.burnin  <- 250;    n.thin    <- 1
@@ -381,13 +428,18 @@ samples <- jags(data=data_toJAGS,
 end <- Sys.time()
 
 cat("Time taken:", round(difftime(end, start, units = "secs"), 2), "seconds")
+
+# Extract posterior samples
+gamma <- samples$BUGSoutput$sims.list$gamma   # Effects on the drift rate
+lambda <- samples$BUGSoutput$sims.list$lambda # Effects on the boundary separation
+# Predicted drift rates and boundary separations
+drift_pred <- samples$BUGSoutput$sims.list$drift_pred
+bound_pred <- samples$BUGSoutput$sims.list$bound_pred
 ```
 
 ### Convergence diagnostics
 
 ```{r}
-source(here("src", "get_Rhat.R"))
-
 rhats <- apply(samples$BUGSoutput$sims.array,3,getRhat)
 rule <- 1.05
 bad.Rhat <- which(rhats>rule)
@@ -402,33 +454,19 @@ if(length(bad.Rhat) > 0){
 }else{      paste("No Rhat greater than ", rule, sep="")       }
 ```
 
-### Extract posterior samples
-
-```{r}
-# Effects of instruction
-gamma <- samples$BUGSoutput$sims.list$gamma   # Effects on the drift rate
-lambda <- samples$BUGSoutput$sims.list$lambda # Effects on the boundary separation
-# Predicted drift rates and boundary separations
-drift_pred <- samples$BUGSoutput$sims.list$drift_pred
-bound_pred <- samples$BUGSoutput$sims.list$bound_pred
-```
-
-
-## Results
-
 ### Interaction plots
 
 We plot the posterior distributions of the drift rate and boundary separation parameters for each experimental condition in the following interaction plots. We confirm that our model is able to recover the single-main effect structure of the true parameter values used to simulate the data.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, fig.width = 10, fig.height = 5}
 par(mfrow = c(1,2), mar = c(5, 4, 4, 2) + 0.1)
-plot_estimates(samples, "drift")
-points(c(1.05,1.95), drift[1,], type = "b", pch = 16, col = "blue")
-points(c(0.95,2.05), drift[2,], type = "b", pch = 16, col = "blue")
+plot_estimates(samples, "drift", colors = c(drift_b1.color, drift_b2.color))
+points(c(0.9,1.9), drift[1,], type = "b", pch = 16, col = "blue")
+points(c(1.1,2.1), drift[2,], type = "b", pch = 16, col = "blue")
 
-plot_estimates(samples, "bound")
-points(c(0.5,1), bound[1,], type = "b", pch = 16, col = "blue")
-points(c(0.5,1), bound[2,], type = "b", pch = 16, col = "blue")
+plot_estimates(samples, "bound", colors = c(bound_b1.color, bound_b2.color))
+points(c(0.9,1.9), bound[1,], type = "b", pch = 16, col = "blue")
+points(c(1.1,2.1), bound[2,], type = "b", pch = 16, col = "blue")
 ```
 
 
@@ -450,13 +488,13 @@ gamma.l <- c(rgb(0.95, 0.1, 0.5, 1),     # Parameter 1: solid magenta pink
              rgb(1.0, 0.7, 0.9, 1))      # Parameter 3: solid light pink
 
 # Color palette for lambda (blue family) - boundary separation effects
-lambda.c <- c(rgb(0.1, 0.3, 0.8, 0.4),   # Parameter 1: semi-transparent deep blue
+lambda.c <- c(rgb(0.3, 0.6, 0.9, 0.4),   # Parameter 1: semi-transparent deep blue
               rgb(0.3, 0.6, 0.9, 0.4),   # Parameter 2: semi-transparent medium blue
-              rgb(0.5, 0.8, 1.0, 0.4))   # Parameter 3: semi-transparent light blue
+              rgb(0.1, 0.3, 0.8, 0.4))   # Parameter 3: semi-transparent light blue
 
-lambda.l <- c(rgb(0.1, 0.3, 0.8, 1),     # Parameter 1: solid deep blue
+lambda.l <- c(rgb(0.3, 0.6, 0.9, 1),     # Parameter 1: solid deep blue
               rgb(0.3, 0.6, 0.9, 1),     # Parameter 2: solid medium blue
-              rgb(0.5, 0.8, 1.0, 1))     # Parameter 3: solid light blue
+              rgb(0.1, 0.3, 0.8, 1))     # Parameter 3: solid light blue
 
 # Parameter names for plot titles
 param_names <- c("Factor A", "Factor B", "Interaction")
@@ -520,7 +558,7 @@ for(i in 1:2){
   xlim <- range(c(gamma[,3], lambda[,3]))
   ylim <- c(0, max(c(density(gamma[,3])$y, density(lambda[,3])$y)) * 1.1)
   
-  plot(c(0,0), main = paste("Effects of", param_names[i]), 
+  plot(c(0,0), main = "Interaction effect", 
        xlab = "Effect size", ylab = "Density", 
        col = "gray", lty = 2, lwd = 1, xlim = xlim, ylim = ylim, type = "n")
   
