@@ -1,4 +1,4 @@
-plot_estimates <- function(samples, parameter){
+plot_estimates <- function(samples, parameter, colors = c("#42B6EC", "#0D41D5")){
 
 if(parameter == "drift"){
   data <- samples$BUGSoutput$sims.list$drift_pred
@@ -29,7 +29,7 @@ for(i in 1:ncol(CI)){
 xlim <- c(0.5,2.5)
 ylim <- c(-1.2,2)
 xlabs <- c("Convexity", "Concavity")
-fillCol <- c("#42B6EC", "#0D41D5", "#42B6EC", "#0D41D5")
+fillCol <- c(colors[1], colors[2], colors[1], colors[2])
 CIcolor <- rep("#CAC7DA",4)
 
 plot(c(0, 5), DOYrange, type = "n", xlim=xlim, ylim=DOYrange,
