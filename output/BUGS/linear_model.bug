@@ -1,23 +1,20 @@
 
 model {
-          beta0 ~ dnorm(0,1)                      # Baseline drift rate
-          beta0_lambda ~ dgamma(2,1)
-          beta0_sigma = pow(beta0_lambda, -0.5)
-          beta1 ~ dnorm(0,1)
-          beta2 ~ dnorm(0,1)
-          beta3 ~ dnorm(0,1) 
+          # Priors
+          beta0 ~ dnorm(0,1)        # Mean RT - Intercept/Baseline          
+          beta1 ~ dnorm(0,1)        # Factor A - Main effect
+          beta2 ~ dnorm(0,1)        # Factor B - Main effect
+          beta3 ~ dnorm(0,1)        # Factor A * Factor B - Interaction
+          rt_lambda ~ dunif(0,3)    # Mean RT - Precision
           
-          # Condition-specific 
+          # Condition-specific Mean RT predictions
           for(j in 1:4){
               rt_pred[j] = beta0 + beta1*A[j]+beta2*B[j]+beta3*A[j]*B[j]              
           }
           
-          #########################
-          ####### Sampling model 
-          ####### (for each experimental session)
-          #########################          
+          # Sampling model           
           for (k in 1:length(meanRT)) {
               # Person-by-condition specificDM parameters                                                  
-              meanRT[k]  ~ dnorm(rt_pred[cond[k]],beta0_lambda)
+              meanRT[k]  ~ dnorm(rt_pred[cond[k]],rt_lambda)
             }
 }
